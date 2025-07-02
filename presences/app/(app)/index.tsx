@@ -320,17 +320,6 @@ export default function Profile() {
     setCurrentWeek(newWeek);
   };
 
-  const goToWeekWithData = () => {
-    if (seances && seances.length > 0) {
-      // Parse the date string properly to avoid timezone issues
-      const dateString = seances[0].date;
-      const [year, month, day] = dateString.split('T')[0].split('-').map(Number);
-      const firstSeanceDate = new Date(year, month - 1, day); // month is 0-indexed
-      setCurrentWeek(firstSeanceDate);
-      setSelectedDate(firstSeanceDate);
-    }
-  };
-
   const getSeancesForDate = (date: Date) => {
     if (!seances || !Array.isArray(seances)) {
       return [];
@@ -470,9 +459,6 @@ export default function Profile() {
             <Text style={styles.scheduleSubtitle}>
               {format(selectedDate, 'EEEE d MMMM yyyy', { locale: fr })}
             </Text>
-            <TouchableOpacity onPress={goToWeekWithData} style={styles.navButtonSmall}>
-              <Text style={styles.navButtonText}>Voir les cours</Text>
-            </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.scheduleList} showsVerticalScrollIndicator={false}>
@@ -777,17 +763,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 8,
-  },
-  navButtonSmall: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  navButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#2563EB',
   },
   refreshButton: {
     padding: 8,

@@ -33,6 +33,7 @@ export default function Profile() {
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{user?.prenom || ''} {user?.nom || ''}</Text>
             <Text style={styles.profileEmail}>{user?.email || ''}</Text>
+            <Text style={styles.profileId}>ID: {user?.id_utilisateur || ''}</Text>
           </View>
         </View>
       </View>
@@ -88,6 +89,11 @@ const styles = StyleSheet.create({
   profileEmail: {
     fontSize: 15,
     color: '#64748B',
+  },
+  profileId: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginTop: 2,
   },
   actionCard: {
     flexDirection: 'row',

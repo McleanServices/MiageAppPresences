@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
 import { Button, Platform, Text, View } from 'react-native';
+import { useSession } from '../../Session/ctx';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -15,8 +16,8 @@ Notifications.setNotificationHandler({
 
 Notifications.scheduleNotificationAsync({
   content: {
-    title: 'hi tyrece',
-    body: "I'm so proud of you!",
+    title: 'Salut',
+    body: "Bienvenue dans l'application Miage Présences !",
   },
   trigger: null,
 });
@@ -27,9 +28,27 @@ export default function Notification() {
   const [notification, setNotification] = useState<Notifications.Notification | undefined>(
     undefined
   );
+  const { updateNotificationKey, user } = useSession();
 
   useEffect(() => {
-    registerForPushNotificationsAsync().then(token => token && setExpoPushToken(token));
+    registerForPushNotificationsAsync().then(async token => {
+      if (token) {
+        setExpoPushToken(token);
+        // Update user's notification key when token is obtained
+        if (user) {
+          try {
+            const result = await updateNotificationKey(token);
+            if (result.success) {
+              console.log('Notification key updated successfully');
+            } else {
+              console.error('Failed to update notification key:', result.error);
+            }
+          } catch (error) {
+            console.error('Error updating notification key:', error);
+          }
+        }
+      }
+    });
 
     if (Platform.OS === 'android') {
       Notifications.getNotificationChannelsAsync().then(value => setChannels(value ?? []));

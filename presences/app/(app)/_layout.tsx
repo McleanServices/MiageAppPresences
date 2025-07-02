@@ -42,7 +42,7 @@ export default function Layout() {
       size={26}
       color="#2563EB"
       style={{ marginRight: 18 }}
-      onPress={() => router.push('/profile')}
+      onPress={() => router.push('/notification')}
     />
   );
   return (
@@ -71,6 +71,14 @@ export default function Layout() {
       <Tabs.Screen
       name="profile"
       options={{
+        title: 'Profil',
+        tabBarIcon: ({ color }) => <FontAwesome size={28} name="cog" color={color} />,
+      }}
+      />
+       <Tabs.Screen
+      name="notification"
+      options={{
+        href: null,
         title: 'Profil',
         tabBarIcon: ({ color }) => <FontAwesome size={28} name="cog" color={color} />,
       }}
