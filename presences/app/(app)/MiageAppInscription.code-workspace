@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../../../MiageAppInscription"
+		},
+		{
+			"path": "../../.."
+		},
+		{
+			"path": "../../../../../clients/mornebourgmassV3"
+		}
+	],
+	"settings": {}
+}
