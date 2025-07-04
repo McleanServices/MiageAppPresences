@@ -1,5 +1,8 @@
+import { Ionicons } from '@expo/vector-icons';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSession } from '../../Session/ctx';
 import { useStorageState } from '../../Session/useStorageState';
 
@@ -40,6 +43,7 @@ export default function ListEmargerScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Extracted fetch logic for reuse
   const fetchAll = async () => {
@@ -131,6 +135,131 @@ export default function ListEmargerScreen() {
     fetchAll();
   };
 
+  const generatePDF = async () => {
+    if (!user || sessions.length === 0) return;
+    
+    setDownloading(true);
+    try {
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Liste des Présences - ${user.prenom} ${user.nom}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #2563EB; padding-bottom: 10px; }
+            .teacher-info { margin-bottom: 20px; }
+            .session-section { margin-bottom: 25px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
+            .session-title { font-size: 18px; font-weight: bold; color: #2563EB; margin-bottom: 10px; }
+            .session-details { margin-bottom: 15px; color: #666; }
+            .students-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            .students-table th, .students-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            .students-table th { background-color: #f8f9fa; font-weight: bold; }
+            .status-present { color: #28a745; font-weight: bold; }
+            .status-absent { color: #dc3545; font-weight: bold; }
+            .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #666; }
+            .stats { display: flex; justify-content: space-between; margin-bottom: 15px; }
+            .stat-item { text-align: center; }
+            .stat-number { font-size: 20px; font-weight: bold; }
+            .stat-label { font-size: 12px; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Liste des Présences par Session</h1>
+            <h2>Enseignant: ${user.prenom} ${user.nom}</h2>
+          </div>
+          
+          <div class="teacher-info">
+            <p><strong>Email:</strong> ${user.email}</p>
+            <p><strong>Date de génération:</strong> ${new Date().toLocaleDateString('fr-FR')}</p>
+            <p><strong>Nombre total d'étudiants:</strong> ${students.length}</p>
+          </div>
+          
+          ${sessions.map(session => {
+            const sessionPresences = presencesBySession[session.id_seance] || [];
+            const presentStudents = sessionPresences.filter((p: any) => p.etat === 'present');
+            const absentStudents = students.filter(student => 
+              !sessionPresences.find((p: any) => p.id_utilisateur === student.id_utilisateur && p.etat === 'present')
+            );
+            
+            return `
+              <div class="session-section">
+                <div class="session-title">${session.cours_nom}</div>
+                <div class="session-details">
+                  <p><strong>Date:</strong> ${formatDate(session.date)}</p>
+                  <p><strong>Heure:</strong> ${formatTimeRange(session.heure_debut, session.heure_fin)}</p>
+                </div>
+                
+                <div class="stats">
+                  <div class="stat-item">
+                    <div class="stat-number">${students.length}</div>
+                    <div class="stat-label">Total</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-number status-present">${presentStudents.length}</div>
+                    <div class="stat-label">Présents</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-number status-absent">${absentStudents.length}</div>
+                    <div class="stat-label">Absents</div>
+                  </div>
+                </div>
+                
+                <table class="students-table">
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Prénom</th>
+                      <th>Formation</th>
+                      <th>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${students.map(student => {
+                      const presence = sessionPresences.find((p: any) => p.id_utilisateur === student.id_utilisateur);
+                      const isPresent = presence && presence.etat === 'present';
+                      return `
+                        <tr>
+                          <td>${student.nom}</td>
+                          <td>${student.prenom}</td>
+                          <td>${student.formation_intitule || 'Non spécifié'}</td>
+                          <td class="${isPresent ? 'status-present' : 'status-absent'}">
+                            ${isPresent ? 'PRÉSENT' : 'ABSENT'}
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }).join('')}
+          
+          <div class="footer">
+            <p>Document généré automatiquement par l'application MIAGE Presences</p>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Télécharger la liste des présences',
+        });
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      Alert.alert('Erreur', 'Impossible de générer le PDF');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (user?.role !== 'enseignant') {
     return (
       <View style={styles.container}>
@@ -148,6 +277,27 @@ export default function ListEmargerScreen() {
       }
     >
       <Text style={styles.title}>Émargement des étudiants par session</Text>
+      
+      {/* Download PDF Button */}
+      {sessions.length > 0 && (
+        <View style={styles.downloadCard}>
+          <TouchableOpacity 
+            style={[styles.downloadButton, downloading && styles.downloadButtonDisabled]} 
+            onPress={generatePDF}
+            disabled={downloading}
+          >
+            {downloading ? (
+              <ActivityIndicator size="small" color="#fff" style={styles.buttonIcon} />
+            ) : (
+              <Ionicons name="download-outline" size={20} color="#fff" style={styles.buttonIcon} />
+            )}
+            <Text style={styles.downloadButtonText}>
+              {downloading ? 'Génération...' : 'Télécharger PDF'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      
       {loading ? (
         <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 32 }} />
       ) : error ? (
@@ -281,5 +431,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     textAlign: 'center',
+  },
+  downloadCard: {
+    width: '100%',
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  downloadButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  downloadButtonDisabled: {
+    backgroundColor: COLORS.border,
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  downloadButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.white,
   },
 }); 

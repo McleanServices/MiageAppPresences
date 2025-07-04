@@ -1,0 +1,790 @@
+# Documentation de l'API MIAGE Présences
+
+## Table des matières
+- [Authentification](#authentification)
+- [Format de réponse](#format-de-réponse)
+- [Gestion des erreurs](#gestion-des-erreurs)
+- [Points de terminaison API](#points-de-terminaison-api)
+  - [Gestion des présences](#gestion-des-présences)
+  - [Gestion des codes QR](#gestion-des-codes-qr)
+  - [Gestion des cours](#gestion-des-cours)
+  - [Gestion des formations](#gestion-des-formations)
+  - [Gestion des justificatifs](#gestion-des-justificatifs)
+  - [Gestion des utilisateurs](#gestion-des-utilisateurs)
+  - [Gestion des notifications](#gestion-des-notifications)
+
+## Authentification
+
+Tous les points de terminaison de l'API nécessitent une authentification utilisant JWT (JSON Web Token).
+
+### En-tête d'autorisation
+```
+Authorization: Bearer <votre_jwt_token>
+```
+
+### Obtenir un token
+Utilisez le point de terminaison de connexion pour obtenir un token JWT :
+
+```bash
+POST /miagepresences/api/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "mot_de_passe": "password"
+}
+```
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "message": "Connexion réussie",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "nom": "Doe",
+    "prenom": "John",
+    "email": "user@example.com",
+    "role": "etudiant"
+  }
+}
+```
+
+## Format de réponse
+
+### Réponse de succès
+```json
+{
+  "success": true,
+  "message": "Opération réussie",
+  "data": { /* données de réponse */ }
+}
+```
+
+### Réponse d'erreur
+```json
+{
+  "success": false,
+  "message": "Description de l'erreur",
+  "error": "Message d'erreur détaillé"
+}
+```
+
+## Gestion des erreurs
+
+| Code de statut | Description |
+|-------------|-------------|
+| 200 | Succès |
+| 201 | Créé |
+| 400 | Requête incorrecte |
+| 401 | Non autorisé |
+| 403 | Interdit |
+| 404 | Non trouvé |
+| 409 | Conflit |
+| 500 | Erreur interne du serveur |
+
+---
+
+## Points de terminaison API
+
+## Gestion des présences
+
+### Enregistrer la présence
+**POST** `/miagepresences/api/presences`
+
+Enregistrer la présence d'un étudiant pour une plage horaire.
+
+**Corps de la requête :**
+```json
+{
+  "id_utilisateur": 1,
+  "id_plage": 1,
+  "etat": "present",
+  "mode_emargement": "qr",
+  "etablie_par_enseignant": false,
+  "full_seance_mode": false
+}
+```
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "message": "Présence enregistrée avec succès",
+  "data": {
+    "recorded_plages": [1],
+    "full_seance_mode": false,
+    "total_recorded": 1
+  }
+}
+```
+
+### Obtenir les enregistrements de présence d'un utilisateur
+**GET** `/miagepresences/api/presences/user/{id}`
+
+Obtenir les enregistrements de présence pour un utilisateur spécifique.
+
+**Paramètres de requête :**
+- `date_debut` (optionnel) : Date de début (AAAA-MM-JJ)
+- `date_fin` (optionnel) : Date de fin (AAAA-MM-JJ)
+- `cours_id` (optionnel) : Filtrer par ID de cours
+- `limit` (optionnel) : Nombre d'enregistrements (par défaut : 50)
+- `offset` (optionnel) : Décalage de pagination (par défaut : 0)
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_utilisateur": 1,
+      "id_plage": 1,
+      "etat": "present",
+      "mode_emargement": "qr",
+      "heure_debut": "08:00:00",
+      "heure_fin": "09:30:00",
+      "date": "2025-07-03",
+      "cours_nom": "Informatique"
+    }
+  ],
+  "count": 1,
+  "pagination": {
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+### Obtenir la présence d'une séance
+**GET** `/miagepresences/api/presences/seance/{id}`
+
+Obtenir tous les enregistrements de présence pour une séance spécifique.
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "seance": {
+    "id_seance": 1,
+    "date": "2025-07-03",
+    "heure_debut": "08:00:00",
+    "heure_fin": "11:30:00",
+    "cours_nom": "Informatique"
+  },
+  "presences": [
+    {
+      "id_utilisateur": 1,
+      "nom": "Doe",
+      "prenom": "John",
+      "etat": "present",
+      "mode_emargement": "qr"
+    }
+  ],
+  "count": 1
+}
+```
+
+### Mettre à jour le statut de présence
+**PATCH** `/miagepresences/api/presences/{userId}/{plageId}`
+
+Mettre à jour le statut de présence (enseignants/administrateurs uniquement).
+
+**Corps de la requête :**
+```json
+{
+  "etat": "retard",
+  "mode_emargement": "manuel",
+  "etablie_par_enseignant": true
+}
+```
+
+### Obtenir les statistiques de présence
+**GET** `/miagepresences/api/presences/user/{id}/stats`
+
+Obtenir les statistiques de présence pour un utilisateur.
+
+**Paramètres de requête :**
+- `date_debut` (optionnel) : Date de début
+- `date_fin` (optionnel) : Date de fin
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "data": {
+    "total_plages": 20,
+    "presences": 18,
+    "absences": 2,
+    "retards": 0,
+    "qr_scans": 15,
+    "teacher_validated": 3,
+    "attendance_rate": 90.00,
+    "period": {
+      "date_debut": "2025-01-01",
+      "date_fin": "2025-07-03"
+    }
+  }
+}
+```
+
+---
+
+## Gestion des codes QR
+
+### Générer un code QR
+**POST** `/miagepresences/api/qr/generate`
+
+Générer des codes QR pour les séances (enseignants/administrateurs uniquement).
+
+**Corps de la requête :**
+```json
+{
+  "id_seance": 1,
+  "duree_validite": 30,
+  "full_seance_mode": false
+}
+```
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "message": "QR codes générés avec succès",
+  "data": {
+    "qr_codes": [
+      {
+        "id_plage": 1,
+        "token": "abc123def456",
+        "qr_data": "miage_qr_abc123def456",
+        "expires_at": "2025-07-03T09:30:00Z"
+      }
+    ],
+    "session_info": {
+      "id_seance": 1,
+      "cours_nom": "Informatique"
+    }
+  }
+}
+```
+
+### Valider un code QR
+**POST** `/miagepresences/api/qr/validate`
+
+Valider le token QR et enregistrer la présence.
+
+**Corps de la requête :**
+```json
+{
+  "qr_data": "miage_qr_abc123def456",
+  "id_utilisateur": 1
+}
+```
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "message": "Présence enregistrée via QR code",
+  "data": {
+    "presence_recorded": true,
+    "plage_info": {
+      "id_plage": 1,
+      "heure_debut": "08:00:00",
+      "heure_fin": "09:30:00"
+    }
+  }
+}
+```
+
+### Obtenir les données QR d'une séance
+**GET** `/miagepresences/api/qr/session/{id}`
+
+Obtenir les informations de code QR pour une séance.
+
+### Vérifier un token QR
+**POST** `/miagepresences/api/qr/verify`
+
+Vérifier le token QR sans enregistrer la présence.
+
+---
+
+## Gestion des cours
+
+### Obtenir tous les cours
+**GET** `/miagepresences/api/cours`
+
+Obtenir la liste de tous les cours.
+
+**Paramètres de requête :**
+- `limit` (optionnel) : Nombre de cours (par défaut : 50)
+- `offset` (optionnel) : Décalage de pagination (par défaut : 0)
+- `search` (optionnel) : Terme de recherche
+- `formation_id` (optionnel) : Filtrer par formation
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_cours": 1,
+      "nom": "Informatique",
+      "description": "Cours d'informatique fondamentale",
+      "credits": 6,
+      "formation_intitule": "MIAGE",
+      "total_seances": 15,
+      "total_enseignants": 2
+    }
+  ],
+  "count": 1,
+  "pagination": {
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+### Créer un cours
+**POST** `/miagepresences/api/cours`
+
+Créer un nouveau cours (administrateur uniquement).
+
+**Corps de la requête :**
+```json
+{
+  "nom": "Nouveau Cours",
+  "description": "Description du cours",
+  "credits": 4,
+  "id_formation": 1
+}
+```
+
+### Obtenir les détails d'un cours
+**GET** `/miagepresences/api/cours/{id}`
+
+Obtenir des informations détaillées sur un cours.
+
+### Mettre à jour un cours
+**PATCH** `/miagepresences/api/cours/{id}`
+
+Mettre à jour les informations du cours (administrateur uniquement).
+
+### Supprimer un cours
+**DELETE** `/miagepresences/api/cours/{id}`
+
+Supprimer un cours (administrateur uniquement).
+
+### Assigner un enseignant à un cours
+**POST** `/miagepresences/api/cours/{id}/teachers`
+
+Assigner un enseignant à un cours.
+
+**Corps de la requête :**
+```json
+{
+  "id_enseignant": 2
+}
+```
+
+### Retirer un enseignant d'un cours
+**DELETE** `/miagepresences/api/cours/{id}/teachers/{teacherId}`
+
+Retirer un enseignant d'un cours.
+
+---
+
+## Gestion des formations
+
+### Obtenir toutes les formations
+**GET** `/miagepresences/api/formations`
+
+Obtenir la liste de tous les programmes académiques.
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_formation": 1,
+      "intitule": "MIAGE",
+      "niveau": "Master",
+      "specialite": "Informatique",
+      "annee_universitaire": "2024-2025",
+      "total_etudiants": 25,
+      "total_cours": 8
+    }
+  ],
+  "count": 1
+}
+```
+
+### Créer une formation
+**POST** `/miagepresences/api/formations`
+
+Créer une nouvelle formation (administrateur uniquement).
+
+**Corps de la requête :**
+```json
+{
+  "intitule": "Nouvelle Formation",
+  "niveau": "Master",
+  "specialite": "Informatique",
+  "annee_universitaire": "2025-2026"
+}
+```
+
+### Obtenir les détails d'une formation
+**GET** `/miagepresences/api/formations/{id}`
+
+Obtenir des informations détaillées sur une formation.
+
+### Obtenir les étudiants d'une formation
+**GET** `/miagepresences/api/formations/{id}/students`
+
+Obtenir tous les étudiants d'une formation.
+
+### Mettre à jour une formation
+**PATCH** `/miagepresences/api/formations/{id}`
+
+Mettre à jour les informations de la formation (administrateur uniquement).
+
+### Supprimer une formation
+**DELETE** `/miagepresences/api/formations/{id}`
+
+Supprimer une formation (administrateur uniquement).
+
+### Assigner un étudiant à une formation
+**POST** `/miagepresences/api/formations/{id}/students`
+
+Assigner un étudiant à une formation.
+
+**Corps de la requête :**
+```json
+{
+  "id_etudiant": 1
+}
+```
+
+### Obtenir les statistiques d'une formation
+**GET** `/miagepresences/api/formations/{id}/stats`
+
+Obtenir les statistiques pour une formation.
+
+---
+
+## Gestion des justificatifs
+
+### Télécharger un justificatif
+**POST** `/miagepresences/api/justificatifs`
+
+Télécharger un justificatif d'absence avec fichier.
+
+**Content-Type :** `multipart/form-data`
+
+**Données du formulaire :**
+- `fichier` : Téléchargement de fichier (PDF, image, etc.)
+- `motif` : Raison de l'absence
+- `date_debut` : Date de début (AAAA-MM-JJ)
+- `date_fin` : Date de fin (AAAA-MM-JJ)
+- `commentaire` : Commentaire optionnel
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "message": "Justificatif uploadé avec succès",
+  "data": {
+    "id_justificatif": 1,
+    "nom_fichier": "certificat_medical.pdf",
+    "chemin_fichier": "uploads/justificatifs/1_certificat_medical.pdf",
+    "statut": "en_attente"
+  }
+}
+```
+
+### Obtenir les justificatifs d'un utilisateur
+**GET** `/miagepresences/api/justificatifs/user/{id}`
+
+Obtenir tous les justificatifs pour un utilisateur.
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_justificatif": 1,
+      "motif": "Certificat médical",
+      "date_debut": "2025-07-01",
+      "date_fin": "2025-07-02",
+      "statut": "valide",
+      "nom_fichier": "certificat_medical.pdf",
+      "date_soumission": "2025-07-01T10:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+### Valider un justificatif
+**PATCH** `/miagepresences/api/justificatifs/{id}/validate`
+
+Valider ou rejeter un justificatif (administrateur uniquement).
+
+**Corps de la requête :**
+```json
+{
+  "statut": "valide",
+  "commentaire_admin": "Justificatif accepté"
+}
+```
+
+### Obtenir les justificatifs en attente
+**GET** `/miagepresences/api/justificatifs/pending`
+
+Obtenir tous les justificatifs en attente (administrateur uniquement).
+
+### Obtenir un justificatif par ID
+**GET** `/miagepresences/api/justificatifs/{id}`
+
+Obtenir les détails d'un justificatif spécifique.
+
+### Télécharger le fichier de justificatif
+**GET** `/miagepresences/api/justificatifs/{id}/download`
+
+Télécharger le fichier de justificatif.
+
+### Supprimer un justificatif
+**DELETE** `/miagepresences/api/justificatifs/{id}`
+
+Supprimer un justificatif.
+
+---
+
+## Gestion des utilisateurs
+
+### Obtenir tous les étudiants
+**GET** `/miagepresences/api/etudiants`
+
+Obtenir la liste de tous les étudiants.
+
+**Paramètres de requête :**
+- `limit` (optionnel) : Nombre d'étudiants (par défaut : 50)
+- `offset` (optionnel) : Décalage de pagination (par défaut : 0)
+- `search` (optionnel) : Terme de recherche
+- `formation_id` (optionnel) : Filtrer par formation
+- `statut_inscription` (optionnel) : Filtrer par statut d'inscription
+
+**Réponse :**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_utilisateur": 1,
+      "nom": "Doe",
+      "prenom": "John",
+      "email": "john.doe@example.com",
+      "numero_etudiant": "20250001",
+      "formation_intitule": "MIAGE",
+      "statut_inscription": "actif",
+      "total_presences": 45
+    }
+  ],
+  "count": 1
+}
+```
+
+### Créer un profil étudiant
+**POST** `/miagepresences/api/etudiants`
+
+Créer un nouveau profil étudiant (administrateur uniquement).
+
+**Corps de la requête :**
+```json
+{
+  "nom": "Nouveau",
+  "prenom": "Etudiant",
+  "email": "etudiant@example.com",
+  "numero_etudiant": "20250002",
+  "id_formation": 1,
+  "mot_de_passe": "password123"
+}
+```
+
+### Obtenir tous les enseignants
+**GET** `/miagepresences/api/enseignants`
+
+Obtenir la liste de tous les enseignants.
+
+### Obtenir les cours d'un enseignant
+**GET** `/miagepresences/api/enseignants/{id}/courses`
+
+Obtenir les cours enseignés par un enseignant.
+
+### Créer un profil enseignant
+**POST** `/miagepresences/api/enseignants`
+
+Créer un nouveau profil enseignant (administrateur uniquement).
+
+### Mettre à jour le rôle d'un utilisateur
+**PATCH** `/miagepresences/api/users/{id}/role`
+
+Mettre à jour le rôle et le type d'utilisateur (administrateur uniquement).
+
+**Corps de la requête :**
+```json
+{
+  "role": "enseignant",
+  "type_utilisateur": "interne"
+}
+```
+
+### Promouvoir en administrateur
+**POST** `/miagepresences/api/users/{id}/promote-admin`
+
+Promouvoir un enseignant en administrateur (administrateur uniquement).
+
+### Révoquer les privilèges d'administrateur
+**DELETE** `/miagepresences/api/users/{id}/admin-privileges`
+
+Révoquer les privilèges d'administrateur (administrateur uniquement).
+
+---
+
+## Gestion des notifications
+
+### Créer une notification
+**POST** `/miagepresences/api/notifications`
+
+Créer une nouvelle notification.
+
+**Corps de la requête :**
+```json
+{
+  "id_utilisateur": 1,
+  "titre": "Nouvelle notification",
+  "message": "Contenu de la notification",
+  "type": "info",
+  "cle_notification": "absence_alert"
+}
+```
+
+### Obtenir les notifications d'un utilisateur
+**GET** `/miagepresences/api/notifications/user/{id_utilisateur}`
+
+Obtenir toutes les notifications pour un utilisateur.
+
+### Obtenir une notification par ID
+**GET** `/miagepresences/api/notifications/{id}`
+
+Obtenir les détails d'une notification spécifique.
+
+### Obtenir les notifications par clé
+**GET** `/miagepresences/api/notifications/key/{cle_notification}`
+
+Obtenir les notifications par clé de notification.
+
+### Mettre à jour une notification
+**PATCH** `/miagepresences/api/notifications/{id}`
+
+Mettre à jour les détails de la notification.
+
+### Marquer une notification comme lue
+**PATCH** `/miagepresences/api/notifications/{id}/read`
+
+Marquer une notification comme lue.
+
+### Envoyer une notification
+**PATCH** `/miagepresences/api/notifications/{id}/send`
+
+Marquer la notification comme envoyée.
+
+### Supprimer une notification
+**DELETE** `/miagepresences/api/notifications/{id}`
+
+Supprimer une notification.
+
+### Obtenir les statistiques de notification
+**GET** `/miagepresences/api/notifications/user/{id_utilisateur}/stats`
+
+Obtenir les statistiques de notification pour un utilisateur.
+
+### Mettre à jour la clé de notification d'un utilisateur
+**PATCH** `/miagepresences/api/notifications/user/{id_utilisateur}/key`
+
+Mettre à jour la clé de notification de l'utilisateur.
+
+### Obtenir la clé de notification d'un utilisateur
+**GET** `/miagepresences/api/notifications/user/{id_utilisateur}/key`
+
+Obtenir la clé de notification de l'utilisateur.
+
+---
+
+## Exemple d'utilisation
+
+### Flux complet de présence
+
+1. **Générer un code QR (Enseignant)**
+```bash
+curl -X POST http://localhost:8082/miagepresences/api/qr/generate \
+  -H "Authorization: Bearer VOTRE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"id_seance": 1, "duree_validite": 30}'
+```
+
+2. **Scanner le code QR (Étudiant)**
+```bash
+curl -X POST http://localhost:8082/miagepresences/api/qr/validate \
+  -H "Authorization: Bearer VOTRE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"qr_data": "miage_qr_abc123", "id_utilisateur": 1}'
+```
+
+3. **Vérifier la présence (Enseignant)**
+```bash
+curl -X GET http://localhost:8082/miagepresences/api/presences/seance/1 \
+  -H "Authorization: Bearer VOTRE_TOKEN"
+```
+
+### Exemple de téléchargement de fichier
+
+```bash
+curl -X POST http://localhost:8082/miagepresences/api/justificatifs \
+  -H "Authorization: Bearer VOTRE_TOKEN" \
+  -F "fichier=@certificat.pdf" \
+  -F "motif=Certificat médical" \
+  -F "date_debut=2025-07-01" \
+  -F "date_fin=2025-07-02"
+```
+
+---
+
+## Limites de taux de l'API
+
+- **Par défaut** : 100 requêtes par minute par utilisateur
+- **Téléchargements de fichiers** : 10 requêtes par minute par utilisateur
+- **Génération QR** : 20 requêtes par minute par enseignant
+
+## Types de fichiers supportés
+
+**Téléchargements de justificatifs :**
+- PDF (.pdf)
+- Images (.jpg, .jpeg, .png, .gif)
+- Documents (.doc, .docx)
+- Taille maximale de fichier : 10MB
+
+---
+
+## Support
+
+Pour le support de l'API et les questions, veuillez contacter l'équipe de développement ou consulter la documentation du projet.
+
+**URL de base :** `http://localhost:8082/miagepresences/api`
+
+**Version de l'API :** 1.0.0
+
+**Dernière mise à jour :** 3 juillet 2025
