@@ -163,6 +163,11 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [lastSync, setLastSync] = useState<string | null>(null);
 
+  // Enseignant-specific state
+  const [enseignantSeances, setEnseignantSeances] = useState<any[]>([]);
+  const [enseignantLoading, setEnseignantLoading] = useState(false);
+  const [[, authToken]] = require('../../Session/useStorageState').useStorageState('authToken');
+
   // Create table if not exists
   useEffect(() => {
     async function setupDb() {
@@ -372,8 +377,104 @@ export default function Profile() {
     registerBackgroundSync();
   }, []);
 
+  // Fetch enseignant sessions if user is enseignant
+  useEffect(() => {
+    async function fetchEnseignantSeances() {
+      if (!user || user.role !== 'enseignant' || !authToken) return;
+      setEnseignantLoading(true);
+      try {
+        const response = await fetch('https://sunnysidecode.com/miagepresences/api/seances', {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+        });
+        if (response.ok) {
+          const result = await response.json();
+          const seancesData = result.data || result;
+          // Filter for enseignant's sessions
+          const teacherId = parseInt(user.id_utilisateur);
+          const teacherSessions = seancesData.filter((s: any) => parseInt(s.enseignant_id) === teacherId);
+          // Sort by date
+          teacherSessions.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          setEnseignantSeances(teacherSessions);
+        } else {
+          setEnseignantSeances([]);
+        }
+      } catch (err) {
+        setEnseignantSeances([]);
+      }
+      setEnseignantLoading(false);
+    }
+    if (user && user.role === 'enseignant') {
+      fetchEnseignantSeances();
+    }
+  }, [user, authToken]);
+
   if (!appIsReady) {
     return null;
+  }
+
+  // If user is enseignant, show their courses instead of the calendar
+  if (user && user.role === 'enseignant') {
+    // Filter enseignantSeances for today only
+    const todayYMD = new Date().toISOString().slice(0, 10);
+    const todaySeances = enseignantSeances.filter(seance => seance.date.slice(0, 10) === todayYMD);
+    return (
+      <View style={styles.container} onLayout={onLayoutRootView}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>
+              Bonjour {user?.prenom ? user.prenom : ''} ! 👋
+            </Text>
+            <Text style={styles.subGreeting}>Vos cours à venir :</Text>
+          </View>
+        </View>
+        <View style={styles.scheduleContainer}>
+          <View style={styles.scheduleHeader}>
+            <Text style={styles.scheduleTitle}>Vos cours à venir</Text>
+          </View>
+          <ScrollView style={styles.scheduleList} showsVerticalScrollIndicator={false}>
+            {enseignantLoading ? (
+              <View style={styles.loadingContainer}>
+                <Text style={styles.loadingText}>Chargement...</Text>
+              </View>
+            ) : todaySeances.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="calendar-outline" size={48} color="#CBD5E1" />
+                <Text style={styles.emptyText}>Aucun cours à venir</Text>
+                <Text style={styles.emptySubtext}>Vous n&apos;avez pas de cours programmés à venir.</Text>
+              </View>
+            ) : (
+              todaySeances.map((seance, index) => (
+                <View key={seance.id_seance} style={styles.courseCard}>
+                  <View style={styles.courseTime}>
+                    <Text style={styles.timeText}>
+                      {formatTime(seance.heure_debut)} - {formatTime(seance.heure_fin)}
+                    </Text>
+                  </View>
+                  <View style={styles.courseContent}>
+                    <View style={styles.courseHeader}>
+                      <Text style={styles.courseName}>{seance.cours_nom}</Text>
+                      <View style={styles.courseStatus}>
+                        <Ionicons name="time-outline" size={16} color="#64748B" />
+                        <Text style={styles.statusText}>À venir</Text>
+                      </View>
+                    </View>
+                    <View style={styles.teacherInfo}>
+                      <Ionicons name="person-outline" size={16} color="#64748B" />
+                      <Text style={styles.teacherText}>
+                        {seance.enseignant_prenom || 'Non renseigné'} {seance.enseignant_nom || ''}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    );
   }
 
   const weekDays = getWeekDays();
@@ -497,17 +598,6 @@ export default function Profile() {
                         <Text style={styles.teacherText}>
                           {seance.enseignant_prenom || 'Non renseigné'} {seance.enseignant_nom || ''}
                         </Text>
-                      </View>
-                      
-                      <View style={styles.courseActions}>
-                        <TouchableOpacity style={styles.actionButton}>
-                          <Ionicons name="location-outline" size={16} color="#2563EB" />
-                          <Text style={styles.actionText}>Localisation</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionButton}>
-                          <Ionicons name="mail-outline" size={16} color="#2563EB" />
-                          <Text style={styles.actionText}>Contacter</Text>
-                        </TouchableOpacity>
                       </View>
                     </View>
                   </View>
@@ -740,24 +830,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748B',
     marginLeft: 6,
-  },
-  courseActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
-  },
-  actionText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#2563EB',
-    marginLeft: 4,
   },
   navigationButtons: {
     flexDirection: 'row',

@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
-import { Button, Platform, Text, View } from 'react-native';
+import { Button, Platform, View } from 'react-native';
 import { useSession } from '../../Session/ctx';
 
 Notifications.setNotificationHandler({
@@ -28,7 +28,7 @@ export default function Notification() {
   const [notification, setNotification] = useState<Notifications.Notification | undefined>(
     undefined
   );
-  const { updateNotificationKey, user } = useSession();
+  const { updateNotificationKey, user, signOut } = useSession();
 
   useEffect(() => {
     registerForPushNotificationsAsync().then(async token => {
@@ -67,29 +67,17 @@ export default function Notification() {
     };
   }, []);
 
+  // Only show a logout button, hide all other UI
   return (
     <View
       style={{
         flex: 1,
         alignItems: 'center',
-        justifyContent: 'space-around',
+        justifyContent: 'center',
       }}>
-      <Text>Your expo push token: {expoPushToken}</Text>
-      <Text>{`Channels: ${JSON.stringify(
-        channels.map(c => c.id),
-        null,
-        2
-      )}`}</Text>
-      <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <Text>Title: {notification && notification.request.content.title} </Text>
-        <Text>Body: {notification && notification.request.content.body}</Text>
-        <Text>Data: {notification && JSON.stringify(notification.request.content.data)}</Text>
-      </View>
       <Button
-        title="Press to schedule a notification"
-        onPress={async () => {
-          await schedulePushNotification();       
-        }}
+        title="Se déconnecter"
+        onPress={signOut}
       />
     </View>
   );

@@ -6,15 +6,15 @@ import { router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSession } from '../Session/ctx';
 
@@ -229,13 +229,6 @@ export default function Login() {
                 {loading ? 'Connexion...' : 'SE CONNECTER'}
               </Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-            style={styles.testButton}
-            onPress={() => router.replace('/')}
-          >
-            <Text style={styles.testButtonText}>Test Accueil</Text>
-          </TouchableOpacity>
           </View>
           {/* Shadow background just under the card */}
           <View style={styles.shadowBackground} />

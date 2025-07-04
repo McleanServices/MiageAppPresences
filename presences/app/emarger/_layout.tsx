@@ -16,6 +16,13 @@ export default function RootLayout() {
         }}
       />
       <Stack.Screen
+        name="confirm-presence"
+        options={{
+          presentation: 'modal',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
         name="valider"
         options={{
           headerShown: false,
