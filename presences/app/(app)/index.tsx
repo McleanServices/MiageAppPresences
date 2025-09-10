@@ -4,10 +4,13 @@ import { eachDayOfInterval, endOfWeek, format, isSameDay, isToday, startOfWeek }
 import { fr } from 'date-fns/locale';
 import * as BackgroundTask from 'expo-background-task';
 import * as SplashScreen from 'expo-splash-screen';
-import { useSQLiteContext } from 'expo-sqlite';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
+import Constants from 'expo-constants';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import Toast from 'react-native-toast-message';
 
 import { useSession } from '../../Session/ctx';
@@ -17,6 +20,16 @@ SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({
   duration: 1000,
   fade: true,
+});
+
+// Set notification handler
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
 });
 
 // Mock data - replace with actual API call
@@ -86,41 +99,17 @@ const BACKGROUND_SYNC_TASK = 'calendar-background-sync';
 
 TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
   try {
-    // Use a separate fetch to avoid using React state/hooks
     const response = await fetch('https://zq2s6rh4-8082.use.devtunnels.ms/api/seances');
     if (response.ok) {
       const result = await response.json();
       const seancesData = result.data || result;
-      // Open DB directly
-      const db = await require('expo-sqlite').openDatabaseAsync('local.db');
-      await db.execAsync('DELETE FROM calendar');
-      for (const seance of seancesData) {
-        await db.runAsync(
-          `INSERT OR REPLACE INTO calendar (
-            id_seance, date, heure_debut, heure_fin, statut, est_figee, id_cours, cours_nom, cours_description, cours_modules, enseignant_id, enseignant_nom, enseignant_prenom, enseignant_email, matricule_enseignant, matiere_principale, role_dans_le_cours
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          seance.id_seance,
-          seance.date,
-          seance.heure_debut,
-          seance.heure_fin,
-          seance.statut,
-          seance.est_figee,
-          seance.id_cours,
-          seance.cours_nom,
-          seance.cours_description,
-          seance.cours_modules,
-          seance.enseignant_id,
-          seance.enseignant_nom,
-          seance.enseignant_prenom,
-          seance.enseignant_email,
-          seance.matricule_enseignant,
-          seance.matiere_principale,
-          seance.role_dans_le_cours
-        );
-      }
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('calendar', JSON.stringify(seancesData));
+      
       // Save last sync date
       const now = new Date().toISOString();
-      await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'lastSync', now);
+      await AsyncStorage.setItem('lastSync', now);
       
       // Update widget storage with today's seances
       const today = new Date();
@@ -154,64 +143,30 @@ export async function saveTodayToWidgetStorage(seances: any[]) {
 }
 
 export default function Profile() {
-  const { signOut, user } = useSession();
-  const db = useSQLiteContext();
+  const { signOut, user, updateNotificationKey } = useSession();
   const [appIsReady, setAppIsReady] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [seances, setSeances] = useState<any[]>(mockSeances);
   const [loading, setLoading] = useState(true);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [expoPushToken, setExpoPushToken] = useState('');
 
   // Enseignant-specific state
   const [enseignantSeances, setEnseignantSeances] = useState<any[]>([]);
   const [enseignantLoading, setEnseignantLoading] = useState(false);
   const [[, authToken]] = require('../../Session/useStorageState').useStorageState('authToken');
 
-  // Create table if not exists
-  useEffect(() => {
-    async function setupDb() {
-      await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS calendar (
-          id_seance INTEGER PRIMARY KEY,
-          date TEXT,
-          heure_debut TEXT,
-          heure_fin TEXT,
-          statut TEXT,
-          est_figee TEXT,
-          id_cours INTEGER,
-          cours_nom TEXT,
-          cours_description TEXT,
-          cours_modules TEXT,
-          enseignant_id INTEGER,
-          enseignant_nom TEXT,
-          enseignant_prenom TEXT,
-          enseignant_email TEXT,
-          matricule_enseignant TEXT,
-          matiere_principale TEXT,
-          role_dans_le_cours TEXT
-        );
-      `);
-      await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS settings (
-          key TEXT PRIMARY KEY,
-          value TEXT
-        );
-      `);
-    }
-    setupDb();
-  }, [db]);
-
   // Load last sync date on mount
   useEffect(() => {
     async function loadLastSync() {
       try {
-        const row = await db.getFirstAsync<{ value?: string }>('SELECT value FROM settings WHERE key = ?', 'lastSync');
-        if (row && typeof row.value === 'string') setLastSync(row.value);
+        const lastSyncValue = await AsyncStorage.getItem('lastSync');
+        if (lastSyncValue) setLastSync(lastSyncValue);
       } catch {}
     }
     loadLastSync();
-  }, [db]);
+  }, []);
 
   // Poll for updates every 1 hour while app is active
   useEffect(() => {
@@ -222,10 +177,56 @@ export default function Profile() {
     return () => clearInterval(interval);
   }, []);
 
+  // Register for push notifications and update user notification key
+  useEffect(() => {
+    async function setupNotifications() {
+      if (!user) return;
+      
+      try {
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          setExpoPushToken(token);
+          console.log('Expo push token obtained:', token);
+          
+          // Update user's notification key
+          const result = await updateNotificationKey(token);
+          if (result.success) {
+            console.log('Notification key updated successfully in index');
+          } else {
+            console.error('Failed to update notification key in index:', result.error);
+          }
+        }
+      } catch (error) {
+        console.error('Error setting up notifications in index:', error);
+      }
+    }
+
+    // Setup notifications when user is available
+    if (user && appIsReady) {
+      setupNotifications();
+    }
+
+    // Setup notification listeners
+    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received in index:', notification);
+    });
+
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('Notification response in index:', response);
+    });
+
+    return () => {
+      notificationListener.remove();
+      responseListener.remove();
+    };
+  }, [user, appIsReady, updateNotificationKey]);
+
   useEffect(() => {
     async function prepare() {
       try {
-        // Fetch seances from API
+        // Load seances from AsyncStorage first
+        await loadSeancesFromStorage();
+        // Then fetch from API
         await fetchSeances();
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (e) {
@@ -246,44 +247,22 @@ export default function Profile() {
         const seancesData = result.data || result;
         setSeances(Array.isArray(seancesData) ? seancesData : mockSeances);
         await saveTodayToWidgetStorage(Array.isArray(seancesData) ? seancesData : mockSeances);
-        // Save to SQLite
-        await db.execAsync('DELETE FROM calendar');
-        for (const seance of seancesData) {
-          await db.runAsync(
-            `INSERT OR REPLACE INTO calendar (
-              id_seance, date, heure_debut, heure_fin, statut, est_figee, id_cours, cours_nom, cours_description, cours_modules, enseignant_id, enseignant_nom, enseignant_prenom, enseignant_email, matricule_enseignant, matiere_principale, role_dans_le_cours
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            seance.id_seance,
-            seance.date,
-            seance.heure_debut,
-            seance.heure_fin,
-            seance.statut,
-            seance.est_figee,
-            seance.id_cours,
-            seance.cours_nom,
-            seance.cours_description,
-            seance.cours_modules,
-            seance.enseignant_id,
-            seance.enseignant_nom,
-            seance.enseignant_prenom,
-            seance.enseignant_email,
-            seance.matricule_enseignant,
-            seance.matiere_principale,
-            seance.role_dans_le_cours
-          );
-        }
+        
+        // Save to AsyncStorage
+        await AsyncStorage.setItem('calendar', JSON.stringify(seancesData));
+        
         // Save last sync date
         const now = new Date().toISOString();
-        await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', 'lastSync', now);
+        await AsyncStorage.setItem('lastSync', now);
         setLastSync(now);
         success = true;
         if (showToast) Toast.show({ type: 'success', text1: 'Calendrier synchronisé', text2: 'Les données ont été mises à jour.' });
       } else {
-        await loadSeancesFromDb();
+        await loadSeancesFromStorage();
         if (showToast) Toast.show({ type: 'error', text1: 'Erreur de synchronisation', text2: 'Impossible de mettre à jour les données.' });
       }
     } catch (error) {
-      await loadSeancesFromDb();
+      await loadSeancesFromStorage();
       if (showToast) Toast.show({ type: 'error', text1: 'Erreur de synchronisation', text2: 'Impossible de mettre à jour les données.' });
     } finally {
       setLoading(false);
@@ -291,11 +270,16 @@ export default function Profile() {
     return success;
   };
 
-  const loadSeancesFromDb = async () => {
+  const loadSeancesFromStorage = async () => {
     try {
-      const rows = await db.getAllAsync('SELECT * FROM calendar');
-      setSeances(rows.length > 0 ? rows : mockSeances);
-      console.log('Loaded seances from SQLite:', rows.length);
+      const storedSeances = await AsyncStorage.getItem('calendar');
+      if (storedSeances) {
+        const seancesData = JSON.parse(storedSeances);
+        setSeances(Array.isArray(seancesData) ? seancesData : mockSeances);
+        console.log('Loaded seances from AsyncStorage:', seancesData.length);
+      } else {
+        setSeances(mockSeances);
+      }
     } catch (err) {
       setSeances(mockSeances);
     }
@@ -609,6 +593,53 @@ export default function Profile() {
       <Toast />
     </>
   );
+}
+
+// Add the notification registration function
+async function registerForPushNotificationsAsync() {
+  let token;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Default notifications',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+    });
+  }
+
+  if (Device.isDevice) {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      console.warn('Failed to get push token for push notification!');
+      return;
+    }
+    try {
+      const projectId =
+        Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
+      if (!projectId) {
+        throw new Error('Project ID not found');
+      }
+      token = (
+        await Notifications.getExpoPushTokenAsync({
+          projectId,
+        })
+      ).data;
+      console.log('Push token generated:', token);
+    } catch (e) {
+      console.error('Error getting push token:', e);
+      token = `${e}`;
+    }
+  } else {
+    console.warn('Must use physical device for Push Notifications');
+  }
+
+  return token;
 }
 
 const styles = StyleSheet.create({

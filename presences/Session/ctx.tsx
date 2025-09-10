@@ -126,27 +126,36 @@ export function SessionProvider({ children }: PropsWithChildren) {
           try {
             const user = userInfo ? JSON.parse(userInfo) : null;
             if (!user || !user.id_utilisateur) {
+              console.error('User not connected or missing id_utilisateur');
               return { success: false, error: 'Utilisateur non connecté' };
             }
 
             if (!authToken) {
+              console.error('Auth token missing');
               return { success: false, error: 'Token d\'authentification manquant' };
             }
 
             console.log('Updating notification key for user:', user.id_utilisateur);
             console.log('Using notification token:', token);
+            console.log('Using auth token:', authToken);
 
-            const response = await fetch(`https://sunnysidecode.com/miagepresences/api/notifications/user/${user.id_utilisateur}/key`, {
+            const url = `https://sunnysidecode.com/miagepresences/api/notifications/user/${user.id_utilisateur}/key`;
+            console.log('Request URL:', url);
+
+            const requestBody = { cle_notification: token };
+            console.log('Request body:', requestBody);
+
+            const response = await fetch(url, {
               method: 'PATCH',
               headers: { 
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${authToken}`
               },
-              body: JSON.stringify({ cle_notification: token }),
+              body: JSON.stringify(requestBody),
             });
 
             console.log('Response status:', response.status);
-            console.log('Response headers:', response.headers);
+            console.log('Response status text:', response.statusText);
             
             // Get response as text first to see what we're getting
             const responseText = await response.text();
@@ -155,25 +164,30 @@ export function SessionProvider({ children }: PropsWithChildren) {
             // Check if response is JSON
             let data;
             try {
-              data = JSON.parse(responseText);
+              data = responseText ? JSON.parse(responseText) : {};
             } catch (parseError) {
               console.error('Failed to parse response as JSON:', parseError);
+              console.error('Response text was:', responseText);
               return { 
                 success: false, 
-                error: `Erreur serveur: réponse non-JSON reçue (Status: ${response.status}). Vérifiez l'URL de l'API.` 
+                error: `Erreur serveur: réponse invalide reçue (Status: ${response.status}). Vérifiez que l'API est accessible.` 
               };
             }
             
             console.log('Parsed response data:', data);
             
             if (!response.ok) {
-              return { success: false, error: data.message || `Erreur ${response.status}: ${response.statusText}` };
+              const errorMessage = data?.message || `Erreur ${response.status}: ${response.statusText}`;
+              console.error('API error:', errorMessage);
+              return { success: false, error: errorMessage };
             }
 
+            console.log('Notification key updated successfully');
             return { success: true };
           } catch (err) {
-            console.error('Network error:', err);
-            return { success: false, error: `Erreur réseau: ${err instanceof Error ? err.message : String(err)}` };
+            console.error('Network error updating notification key:', err);
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            return { success: false, error: `Erreur réseau: ${errorMessage}` };
           }
         },
       }}>

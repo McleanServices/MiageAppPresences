@@ -2,7 +2,7 @@
   "expo": {
     "name": "presences",
     "slug": "presences",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "presences",
@@ -12,6 +12,7 @@
       "appleTeamId": "S288VRTCF4",
       "supportsTablet": true,
       "bundleIdentifier": "com.mcleantyrece.presences",
+      "scheme": "presences",
       "entitlements": {
         "com.apple.security.application-groups": [
           "group.com.presencestyrece.mywidget"
@@ -19,19 +20,31 @@
       }
     },
     "android": {
+       "googleServicesFile": "./google-services.json",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#33333F"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.mcleantyrece.presences"
+      "package": "com.mcleantyrece.presences",
+      "scheme": "presences"
     },
     "web": {
       "bundler": "metro",
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      [
+        "expo-notifications",
+        {
+          "sounds": [
+            "./assets/notification_sound.wav",
+            "./assets/emergency.wav"
+          ]
+        }
+      ],
       "expo-router",
       [
         "expo-splash-screen",
@@ -42,16 +55,7 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-sqlite",
       "@bacons/apple-targets",
-      [
-        "expo-notifications",
-        {
-          "sounds": [
-            "./assets/notification_sound.wav"
-          ]
-        }
-      ],
       [
         "expo-camera",
         {
@@ -68,7 +72,8 @@
       
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "baseUrl": "/miagepresencesapp"
     },
     "extra": {
       "router": {},

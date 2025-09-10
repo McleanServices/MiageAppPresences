@@ -12,7 +12,6 @@ export function RootNavigator() {
           name="login"
           options={{ headerShown: false, headerBackVisible: false }}
         />
-       
       </Stack.Protected>
 
       <Stack.Protected guard={session}>

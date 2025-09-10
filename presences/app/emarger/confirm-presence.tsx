@@ -5,6 +5,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSession } from '../../Session/ctx';
 import { useStorageState } from '../../Session/useStorageState';
+import Constants from 'expo-constants';
+
+// Make sure this matches the encryption key in server.js
+const QR_ENCRYPTION_KEY = 'fghtyftfytfjhftdftyuyggkjyuygu'; // Same as server
+const APP_SIGNATURE = 'miage-presences-v1';
 
 const ConfirmPresenceModal = () => {
   const router = useRouter();
@@ -18,6 +23,8 @@ const ConfirmPresenceModal = () => {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnrolled, setBiometricEnrolled] = useState(false);
   const [courseDetails, setCourseDetails] = useState<any>(null);
+  const [allPlages, setAllPlages] = useState<any[]>([]);
+  const [existingPresences, setExistingPresences] = useState<any[]>([]);
 
   // Memoize the QR payload to prevent infinite re-renders
   const qrPayload = useMemo(() => {
@@ -84,6 +91,13 @@ const ConfirmPresenceModal = () => {
       fetchCourseDetailsBackground(qrPayload.seance, qrPayload.plage);
     }
   }, [qrPayload]);
+
+  // Fetch session plages and existing presences when session info is available
+  useEffect(() => {
+    if (sessionInfo && sessionInfo.mode === 'full' && authToken && user?.id_utilisateur) {
+      fetchSessionData();
+    }
+  }, [sessionInfo, authToken, user]);
 
   const calculatePlageNumber = (plageId: number): number => {
     // Calculate which hour this plage represents
@@ -152,6 +166,54 @@ const ConfirmPresenceModal = () => {
     } catch (error) {
       console.error('Error fetching additional course details:', error);
       // Don't update course details on error, keep the initial ones
+    }
+  };
+
+  const fetchSessionData = async () => {
+    if (!sessionInfo || !authToken || !user?.id_utilisateur) return;
+
+    try {
+      console.log('🔍 Fetching session data for full session mode...');
+      
+      // Get all plages for this session
+      const plagesResponse = await fetch(`https://sunnysidecode.com/miagepresences/api/qr/session/${sessionInfo.seance}`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (plagesResponse.ok) {
+        const plagesData = await plagesResponse.json();
+        if (plagesData.success && plagesData.data && plagesData.data.plages_horaires) {
+          setAllPlages(plagesData.data.plages_horaires);
+          console.log('📋 All plages for session:', plagesData.data.plages_horaires);
+        }
+      }
+
+      // Get existing presences for this user and session
+      const presencesResponse = await fetch('https://sunnysidecode.com/miagepresences/api/presences', {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (presencesResponse.ok) {
+        const presencesData = await presencesResponse.json();
+        if (presencesData.success && presencesData.data) {
+          // Filter presences for this specific session
+          const sessionPresences = presencesData.data.filter((presence: any) => {
+            return presence.id_seance === sessionInfo.seance && 
+                   presence.id_utilisateur === parseInt(user?.id_utilisateur || '0') &&
+                   presence.etat === 'present';
+          });
+          setExistingPresences(sessionPresences);
+          console.log('✅ Existing presences for this session:', sessionPresences);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching session data:', error);
     }
   };
 
@@ -232,36 +294,182 @@ const ConfirmPresenceModal = () => {
     }
 
     try {
-      console.log('📤 Sending presence confirmation to backend...');
-      console.log('👤 User ID:', user?.id_utilisateur);
-      console.log('🔑 Session Info:', sessionInfo);
+      console.log('📤 Sending presence confirmation...');
       
       const userId = parseInt(user?.id_utilisateur || '0');
       if (userId === 0) {
         Alert.alert('Erreur', 'ID utilisateur invalide');
         return;
       }
+
+      // Handle full session mode with smart logic
+      if (sessionInfo.mode === 'full') {
+        console.log('🎯 Processing full session mode with smart logic');
+        
+        const allPlageIds = allPlages.map(p => p.id_plage);
+        const existingPlageIds = existingPresences.map(p => p.id_plage);
+        const missingPlageIds = allPlageIds.filter(id => !existingPlageIds.includes(id));
+
+        console.log('📊 All plages:', allPlageIds);
+        console.log('📊 Existing:', existingPlageIds);
+        console.log('📊 Missing:', missingPlageIds);
+
+        if (missingPlageIds.length === 0) {
+          // All presences already recorded
+          Alert.alert(
+            'Présence complète',
+            'Votre présence est déjà enregistrée pour toutes les plages horaires de cette séance.',
+            [
+              {
+                text: 'Compris',
+                onPress: () => router.back(),
+                style: 'default'
+              }
+            ]
+          );
+          return;
+        }
+
+        // Record presences for missing plages
+        const results = [];
+        const errors = [];
+
+        for (const plageId of missingPlageIds) {
+          try {
+            const response = await fetch('https://sunnysidecode.com/miagepresences/api/presences', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+              },
+              body: JSON.stringify({
+                id_utilisateur: userId,
+                id_plage: plageId,
+                etat: "present",
+                mode_emargement: "qr",
+                etablie_par_enseignant: false,
+                full_seance_mode: true
+              }),
+            });
+
+            const data = await response.json();
+            if (data.success) {
+              results.push(plageId);
+              console.log(`✅ Recorded presence for plage ${plageId}`);
+            } else {
+              errors.push(`Plage ${plageId}: ${data.message || data.error}`);
+              console.log(`❌ Failed to record presence for plage ${plageId}:`, data.message);
+            }
+          } catch (error) {
+            errors.push(`Plage ${plageId}: Erreur réseau`);
+            console.error(`❌ Network error for plage ${plageId}:`, error);
+          }
+        }
+
+        if (results.length > 0) {
+          // Success - show appropriate message
+          const totalPlages = allPlageIds.length;
+          const previouslyRecorded = existingPlageIds.length;
+          const newlyRecorded = results.length;
+
+          let message;
+          if (previouslyRecorded === 0) {
+            // All plages were recorded in this session
+            const plageText = newlyRecorded === 1 ? 'plage horaire' : 'plages horaires';
+            message = `Présence enregistrée avec succès pour toute la séance (${newlyRecorded} ${plageText}).`;
+          } else {
+            // Some plages were already recorded, others were added
+            const newPlageText = newlyRecorded === 1 ? 'plage horaire restante' : 'plages horaires restantes';
+            const existingPlageText = previouslyRecorded === 1 ? 'plage était déjà enregistrée' : 'plages étaient déjà enregistrées';
+            message = `Présence enregistrée pour ${newlyRecorded} ${newPlageText}. ${previouslyRecorded} ${existingPlageText}.`;
+          }
+
+          // Navigate to success screen
+          const validationParams = {
+            success: 'true',
+            courseName: courseDetails?.courseName || 'Cours',
+            timeSlot: `Séance entière (${totalPlages} plages)`,
+            message: message,
+          };
+
+          router.replace({
+            pathname: '/emarger/valider',
+            params: validationParams
+          });
+        } else {
+          // All failed
+          Alert.alert(
+            'Erreur',
+            'Impossible d\'enregistrer la présence pour les plages restantes. Veuillez réessayer.',
+            [
+              {
+                text: 'Réessayer',
+                onPress: () => setIsLoading(false),
+                style: 'default'
+              },
+              {
+                text: 'Annuler',
+                onPress: () => router.back(),
+                style: 'cancel'
+              }
+            ]
+          );
+        }
+        return;
+      }
+
+      // Standard single plage mode
+      // Extract encrypted data from original QR code
+      let encryptedData = '';
+      if (originalQrData.startsWith('miagepresences://scan?data=')) {
+        encryptedData = decodeURIComponent(originalQrData.replace('miagepresences://scan?data=', ''));
+      }
       
-      // Use the correct presence recording endpoint
-      const requestBody = {
-        id_utilisateur: userId,
-        id_plage: sessionInfo.plage,
-        etat: "present",
-        mode_emargement: "qr",
-        etablie_par_enseignant: false,
-        full_seance_mode: sessionInfo.mode === 'full'
+      // Prepare device info with app signature
+      const deviceInfo = {
+        app_version: Constants.expoConfig?.version || '1.0.0',
+        platform: Platform.OS,
+        app_name: 'MiagePresences',
+        app_signature: APP_SIGNATURE
       };
       
-      console.log('📦 Request body:', requestBody);
+      let response;
       
-      const response = await fetch('https://sunnysidecode.com/miagepresences/api/presences', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: JSON.stringify(requestBody),
-      });
+      // Use the new encrypted validation endpoint if we have encrypted data
+      if (encryptedData) {
+        console.log('🔒 Using encrypted validation endpoint');
+        response = await fetch('https://sunnysidecode.com/miagepresences/api/qr/validate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            encrypted_data: encryptedData,
+            id_utilisateur: userId,
+            device_info: deviceInfo
+          }),
+        });
+      } else {
+        // Fallback to direct presence recording for legacy format
+        console.log('📝 Using direct presence recording (legacy)');
+        response = await fetch('https://sunnysidecode.com/miagepresences/api/presences', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            id_utilisateur: userId,
+            id_plage: sessionInfo.plage,
+            etat: "present",
+            mode_emargement: "qr",
+            etablie_par_enseignant: false,
+            full_seance_mode: sessionInfo.mode === 'full',
+            device_info: deviceInfo
+          }),
+        });
+      }
 
       const data = await response.json();
       console.log('📥 API Response:', data);
@@ -283,12 +491,95 @@ const ConfirmPresenceModal = () => {
           params: validationParams
         });
       } else {
-        console.log('❌ Presence confirmation failed:', data.message);
-        Alert.alert('Erreur', data.message || 'Erreur lors de la confirmation de présence');
+        console.log('❌ Presence confirmation failed:', data.message || data.error);
+        
+        // Handle specific error cases with appropriate alerts
+        if (data.error && data.error.includes('déjà enregistrée')) {
+          Alert.alert(
+            'Présence déjà enregistrée',
+            'Votre présence a déjà été enregistrée pour cette plage horaire.',
+            [
+              {
+                text: 'Compris',
+                onPress: () => router.back(),
+                style: 'default'
+              }
+            ]
+          );
+        } else if (data.error && data.error.includes('expiré')) {
+          Alert.alert(
+            'QR Code expiré',
+            'Ce QR code a expiré. Veuillez demander à votre enseignant de générer un nouveau code.',
+            [
+              {
+                text: 'Compris',
+                onPress: () => router.back(),
+                style: 'default'
+              }
+            ]
+          );
+        } else if (data.error && data.error.includes('figée')) {
+          Alert.alert(
+            'Séance figée',
+            'Cette séance est figée et n\'accepte plus de nouvelles présences.',
+            [
+              {
+                text: 'Compris',
+                onPress: () => router.back(),
+                style: 'default'
+              }
+            ]
+          );
+        } else if (data.error && data.error.includes('non trouvée')) {
+          Alert.alert(
+            'Séance introuvable',
+            'La séance correspondante à ce QR code est introuvable.',
+            [
+              {
+                text: 'Compris',
+                onPress: () => router.back(),
+                style: 'default'
+              }
+            ]
+          );
+        } else {
+          // Generic error
+          Alert.alert(
+            'Erreur',
+            data.message || data.error || 'Une erreur est survenue lors de l\'enregistrement de votre présence.',
+            [
+              {
+                text: 'Réessayer',
+                onPress: () => setIsLoading(false),
+                style: 'default'
+              },
+              {
+                text: 'Annuler',
+                onPress: () => router.back(),
+                style: 'cancel'
+              }
+            ]
+          );
+        }
       }
     } catch (error) {
       console.error('Presence confirmation error:', error);
-      Alert.alert('Erreur', 'Erreur réseau lors de la confirmation de présence');
+      Alert.alert(
+        'Erreur de connexion',
+        'Impossible de se connecter au serveur. Vérifiez votre connexion internet et réessayez.',
+        [
+          {
+            text: 'Réessayer',
+            onPress: () => setIsLoading(false),
+            style: 'default'
+          },
+          {
+            text: 'Annuler',
+            onPress: () => router.back(),
+            style: 'cancel'
+          }
+        ]
+      );
     }
   };
 
@@ -296,6 +587,7 @@ const ConfirmPresenceModal = () => {
     router.back();
   };
 
+  // Update the course details display for full session mode
   if (!sessionInfo) {
     return (
       <View style={styles.container}>
@@ -354,10 +646,13 @@ const ConfirmPresenceModal = () => {
                 <Ionicons name="layers-outline" size={16} color="#64748B" />
                 <Text style={styles.detailLabel}>Séance:</Text>
                 <Text style={styles.detailValue}>
-                  {courseDetails.plage_number === 1 ? '1ère heure' : 
-                   courseDetails.plage_number === 2 ? '2ème heure' :
-                   `${courseDetails.plage_number}ème heure`} 
-                  {courseDetails.total_plages > 1 && ` (${courseDetails.plage_number}/${courseDetails.total_plages})`}
+                  {sessionInfo.mode === 'full' ? 
+                    `Séance entière${allPlages.length > 0 ? ` (${allPlages.length} plages)` : ''}` :
+                    (courseDetails.plage_number === 1 ? '1ère heure' : 
+                     courseDetails.plage_number === 2 ? '2ème heure' :
+                     `${courseDetails.plage_number}ème heure`)
+                  }
+                  {sessionInfo.mode !== 'full' && courseDetails.total_plages > 1 && ` (${courseDetails.plage_number}/${courseDetails.total_plages})`}
                 </Text>
               </View>
               
@@ -365,9 +660,23 @@ const ConfirmPresenceModal = () => {
                 <Ionicons name="time-outline" size={16} color="#64748B" />
                 <Text style={styles.detailLabel}>Horaire:</Text>
                 <Text style={styles.detailValue}>
-                  {getTimeSlotLabel(courseDetails.plage_number, courseDetails.heure_debut, courseDetails.heure_fin)}
+                  {sessionInfo.mode === 'full' ? 
+                    'Toute la séance' :
+                    getTimeSlotLabel(courseDetails.plage_number, courseDetails.heure_debut, courseDetails.heure_fin)
+                  }
                 </Text>
               </View>
+
+              {/* Show existing presences for full session mode */}
+              {sessionInfo.mode === 'full' && existingPresences.length > 0 && (
+                <View style={styles.detailRow}>
+                  <Ionicons name="checkmark-circle-outline" size={16} color="#10B981" />
+                  <Text style={styles.detailLabel}>Déjà présent:</Text>
+                  <Text style={[styles.detailValue, { color: '#10B981' }]}>
+                    {existingPresences.length} plage{existingPresences.length > 1 ? 's' : ''} enregistrée{existingPresences.length > 1 ? 's' : ''}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         ) : (
@@ -385,7 +694,7 @@ const ConfirmPresenceModal = () => {
 
         {/* Authentication Options */}
         <View style={styles.authContainer}>
-          {/* Password Option - Now at the top */}
+          {/* Password Option */}
           <View style={styles.passwordContainer}>
             <Text style={styles.inputLabel}>Mot de passe</Text>
             <TextInput
@@ -406,7 +715,9 @@ const ConfirmPresenceModal = () => {
               onPress={authenticateWithPassword}
               disabled={isLoading || !password.trim()}
             >
-              <Text style={styles.passwordButtonText}>Je valide ma présence</Text>
+              <Text style={styles.passwordButtonText}>
+                {sessionInfo.mode === 'full' ? 'Je valide ma présence pour la séance' : 'Je valide ma présence'}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -417,7 +728,7 @@ const ConfirmPresenceModal = () => {
             <View style={styles.dividerLine} />
           </View>
 
-          {/* Biometric Option - Now at the bottom */}
+          {/* Biometric Option */}
           {biometricAvailable && biometricEnrolled && (
             <TouchableOpacity
               style={[styles.authButton, styles.biometricButton]}
@@ -434,7 +745,9 @@ const ConfirmPresenceModal = () => {
         {isLoading && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#2563EB" />
-            <Text style={styles.loadingText}>Validation en cours...</Text>
+            <Text style={styles.loadingText}>
+              {sessionInfo.mode === 'full' ? 'Enregistrement des présences...' : 'Validation en cours...'}
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -627,4 +940,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ConfirmPresenceModal; 
+export default ConfirmPresenceModal;

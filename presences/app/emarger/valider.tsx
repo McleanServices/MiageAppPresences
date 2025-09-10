@@ -7,10 +7,18 @@ const ValiderScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   
+  // Log received params for debugging
+  console.log('📋 Validation screen received params:', params);
+  console.log('📋 Scan ID:', params.scanId);
+  console.log('📋 Scan timestamp:', params.scanTimestamp);
+  console.log('📋 Fresh data token:', params.freshDataToken);
+  
   const isSuccess = params.success === 'true';
   const courseName = params.courseName as string || 'Cours';
   const timeSlot = params.timeSlot as string || '';
   const message = params.message as string || 'Validation réussie';
+  const scanId = params.scanId as string;
+  const scanTimestamp = params.scanTimestamp as string;
 
   const handleGoHome = () => {
     router.replace('/');
@@ -73,6 +81,15 @@ const ValiderScreen = () => {
                 })}
               </Text>
             </View>
+            
+            {/* Debug info for development */}
+            {scanId && (
+              <View style={styles.infoRow}>
+                <Ionicons name="qr-code-outline" size={20} color="#64748B" />
+                <Text style={styles.infoLabel}>Scan #:</Text>
+                <Text style={styles.infoValue}>{scanId}</Text>
+              </View>
+            )}
           </View>
         )}
 

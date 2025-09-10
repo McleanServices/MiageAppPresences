@@ -2,9 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { Camera, CameraView } from 'expo-camera';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Constants from 'expo-constants';
 import { useSession } from '../../Session/ctx';
 import { useStorageState } from '../../Session/useStorageState';
+import CryptoJS from 'crypto-js';
+
+const QR_ENCRYPTION_KEY = 'fghtyftfytfjhftdftyuyggkjyuygu'; // Match server key
+const APP_SIGNATURE = 'miage-presences-v1';
 
 const ScanCodeScreen = () => {
   const router = useRouter();
@@ -19,7 +24,9 @@ const ScanCodeScreen = () => {
   // Add refs to prevent multiple scans
   const isProcessingRef = useRef(false);
   const lastScannedDataRef = useRef<string>('');
+  const lastScanTimestampRef = useRef<number>(0);
   const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scanIdRef = useRef<number>(0);
   
   // Request camera permission on mount
   useEffect(() => {
@@ -31,16 +38,72 @@ const ScanCodeScreen = () => {
     })();
   }, []);
 
+  // Simplified decryption function - no more AES/UTF-8 issues
+  const decryptQRData = (encryptedData: string) => {
+    try {
+      console.log('🔓 Attempting to decode QR data...');
+      console.log('🔍 Data preview:', encryptedData.substring(0, 50) + '...');
+      
+      // Handle base64 encoded data
+      if (encryptedData.startsWith('B64:')) {
+        console.log('📦 Using base64 decoding');
+        const base64Data = encryptedData.substring(4);
+        const jsonString = atob(base64Data); // Simple base64 decode
+        const payload = JSON.parse(jsonString);
+        
+        // Validate app signature
+        if (payload.app_signature !== APP_SIGNATURE) {
+          throw new Error('Invalid app signature');
+        }
+        
+        console.log('✅ Successfully decoded and validated QR data');
+        return payload;
+      }
+      
+      // Legacy support for direct JSON
+      console.log('📦 Attempting direct JSON parsing');
+      const payload = JSON.parse(encryptedData);
+      
+      // Validate app signature
+      if (payload.app_signature !== APP_SIGNATURE) {
+        throw new Error('Invalid app signature');
+      }
+      
+      console.log('✅ Successfully parsed and validated QR data');
+      return payload;
+      
+    } catch (error) {
+      console.error('❌ Decoding failed with error:', error);
+      
+      // Provide helpful error messages
+      if (error instanceof Error) {
+        if (error.message.includes('JSON')) {
+          throw new Error('QR code invalide - format incorrect');
+        }
+        if (error.message.includes('signature')) {
+          throw new Error('QR code non autorisé');
+        }
+      }
+      
+      throw new Error('QR code invalide ou corrompu');
+    }
+  };
+
   // Handle scanning the QR code
   const handleBarcodeScanned = async ({ type, data }: { type: string; data: string }) => {
+    const scanTimestamp = Date.now();
+    const scanId = ++scanIdRef.current;
+    
     console.log('🔍 QR Code scanned:', data);
+    console.log('🔍 Scan ID:', scanId);
+    console.log('🔍 Scan timestamp:', scanTimestamp);
     console.log('🔍 Barcode type:', type);
     console.log('👤 Current user:', user);
     console.log('🔑 Auth token available:', !!authToken);
     
-    // Prevent multiple scans of the same data
-    if (lastScannedDataRef.current === data) {
-      console.log('⚠️ Duplicate scan detected, ignoring');
+    // Prevent multiple scans of the same data within 2 seconds
+    if (lastScannedDataRef.current === data && (scanTimestamp - lastScanTimestampRef.current) < 2000) {
+      console.log('⚠️ Duplicate scan detected within 2 seconds, ignoring');
       return;
     }
     
@@ -55,6 +118,7 @@ const ScanCodeScreen = () => {
     setScanned(true);
     setLoading(true);
     lastScannedDataRef.current = data;
+    lastScanTimestampRef.current = scanTimestamp;
     
     // Clear any existing timeout
     if (scanTimeoutRef.current) {
@@ -63,16 +127,29 @@ const ScanCodeScreen = () => {
     
     // Add debounce delay
     scanTimeoutRef.current = setTimeout(async () => {
-      console.log('⏰ Timeout triggered - starting QR processing');
+      console.log('⏰ Timeout triggered - starting QR processing for scan ID:', scanId);
       try {
         setError('');
-
         console.log('📋 Validating QR code format...');
         
-        // Parse the QR data - it should be a JSON string from the backend
         let qrPayload;
         try {
-          qrPayload = JSON.parse(data);
+          // Check if it's our custom URL scheme
+          if (data.startsWith('miagepresences://scan?data=')) {
+            console.log('🔗 Processing custom URL scheme');
+            const encryptedData = decodeURIComponent(data.replace('miagepresences://scan?data=', ''));
+            qrPayload = decryptQRData(encryptedData);
+          } else {
+            // Legacy support for direct JSON (should be removed in production)
+            console.log('⚠️ Legacy QR format detected');
+            qrPayload = JSON.parse(data);
+            
+            // Validate app signature even for legacy format
+            if (qrPayload.app_signature !== APP_SIGNATURE) {
+              throw new Error('QR code non autorisé');
+            }
+          }
+          
           console.log('📦 Parsed QR payload:', qrPayload);
           
           // Validate required fields
@@ -80,32 +157,51 @@ const ScanCodeScreen = () => {
             console.log('❌ Missing required fields in QR payload');
             throw new Error('QR Code invalide. Données manquantes.');
           }
+          
+          // Validate expiration
+          if (qrPayload.expires_at && new Date(qrPayload.expires_at) < new Date()) {
+            throw new Error('QR Code expiré');
+          }
+          
         } catch (parseError) {
-          console.log('❌ Failed to parse QR data as JSON:', parseError);
-          throw new Error('QR Code invalide. Format non reconnu.');
+          console.log('❌ Failed to process QR data:', parseError);
+          throw new Error(parseError instanceof Error ? parseError.message : 'QR Code invalide. Format non reconnu.');
         }
 
         console.log('✅ QR format valid, preparing navigation...');
-        console.log('📤 QR payload:', qrPayload);
 
         // Set navigated flag to prevent further processing
         setNavigated(true);
         console.log('🚀 Setting navigated flag to true');
 
-        // Navigate directly to confirmation modal without API call
-        const navigationParams = {
-          qrPayload: JSON.stringify(qrPayload),
-          originalQrData: data, // Pass the original QR data string
+        // Add device info for validation
+        const deviceInfo = {
+          app_version: Constants.expoConfig?.version || '1.0.0',
+          platform: Platform.OS,
+          app_name: 'MiagePresences',
+          app_signature: APP_SIGNATURE
         };
         
-        console.log('🧭 Navigating to confirmation modal with QR data');
+        // Add fresh data identifiers to ensure uniqueness
+        const navigationParams = {
+          qrPayload: JSON.stringify(qrPayload),
+          originalQrData: data,
+          deviceInfo: JSON.stringify(deviceInfo),
+          scanId: scanId.toString(),
+          scanTimestamp: scanTimestamp.toString(),
+          freshDataToken: Math.random().toString(36).substring(2, 15) // Random token for freshness
+        };
         
-        router.push({
+        console.log('🧭 Navigating to confirmation modal with fresh scan data');
+        console.log('📊 Navigation params keys:', Object.keys(navigationParams));
+        
+        // Use replace instead of push to ensure fresh navigation
+        router.replace({
           pathname: '/emarger/confirm-presence',
           params: navigationParams
         });
         
-        console.log('✅ Navigation initiated successfully');
+        console.log('✅ Navigation initiated successfully with scan ID:', scanId);
       } catch (err) {
         console.log('💥 Error caught:', err);
         const errorMessage = err instanceof Error ? err.message : 'Erreur réseau lors de la validation';
@@ -120,14 +216,15 @@ const ScanCodeScreen = () => {
           setLoading(false);
           isProcessingRef.current = false;
           lastScannedDataRef.current = '';
+          lastScanTimestampRef.current = 0;
         }, 3000);
       } finally {
-        console.log('🏁 Scan process completed');
+        console.log('🏁 Scan process completed for scan ID:', scanId);
         if (!navigated) {
           setLoading(false);
         }
       }
-    }, 100); // 100ms debounce delay - reduced to prevent interruption
+    }, 100);
   };
 
   const handleClose = () => {
@@ -142,6 +239,8 @@ const ScanCodeScreen = () => {
     setNavigated(false);
     isProcessingRef.current = false;
     lastScannedDataRef.current = '';
+    lastScanTimestampRef.current = 0;
+    scanIdRef.current = 0;
     if (scanTimeoutRef.current) {
       clearTimeout(scanTimeoutRef.current);
       scanTimeoutRef.current = null;
@@ -182,6 +281,8 @@ const ScanCodeScreen = () => {
         
         // Reset refs
         lastScannedDataRef.current = '';
+        lastScanTimestampRef.current = 0;
+        scanIdRef.current = 0;
         
         // Clear timeout
         if (scanTimeoutRef.current) {
@@ -285,6 +386,8 @@ const ScanCodeScreen = () => {
               setNavigated(false);
               isProcessingRef.current = false;
               lastScannedDataRef.current = '';
+              lastScanTimestampRef.current = 0;
+              scanIdRef.current = 0;
               if (scanTimeoutRef.current) {
                 clearTimeout(scanTimeoutRef.current);
                 scanTimeoutRef.current = null;
@@ -502,5 +605,6 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
 });
+
 
 export default ScanCodeScreen;

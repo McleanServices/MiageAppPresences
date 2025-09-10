@@ -51,7 +51,7 @@ export default function Login() {
     
         // Artificially delay for two seconds to simulate a slow loading
         // experience. Remove this if you copy and paste the code!
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (e) {
         console.warn(e);
       } finally {
@@ -144,26 +144,20 @@ export default function Login() {
     >
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View style={styles.centeredView}>
-          {/* Four images above the card */}
           <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 16 }}>
             <Image
-              source={require('../assets/images/icon.png')}
-              style={{ width: 80, height: 80, marginHorizontal: 4 }}
+              source={require('../assets/images/uni.png')}
+              style={{ width: 50, height: 50, marginHorizontal: 4, marginTop: 20 }}
               contentFit="contain"
             />
             <Image
-              source={require('../assets/images/icon.png')}
-              style={{ width: 80, height: 80, marginHorizontal: 4 }}
+              source={require('../assets/images/miage.png')}
+              style={{ width: 90, height: 90, marginHorizontal: 1, marginTop: 6 }}
               contentFit="contain"
             />
             <Image
-              source={require('../assets/images/icon.png')}
-              style={{ width: 80, height: 80, marginHorizontal: 4 }}
-              contentFit="contain"
-            />
-            <Image
-              source={require('../assets/images/icon.png')}
-              style={{ width: 80, height: 80, marginHorizontal: 4 }}
+              source={require('../assets/images/greta.png')}
+              style={{ width: 110, height: 110, marginHorizontal: 1 }}
               contentFit="contain"
             />
           </View>

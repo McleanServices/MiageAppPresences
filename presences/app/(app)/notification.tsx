@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
-import { Button, Platform, View } from 'react-native';
+import { Button, Platform, View, StyleSheet, Text, Alert, ActivityIndicator } from 'react-native';
 import { useSession } from '../../Session/ctx';
 
 Notifications.setNotificationHandler({
@@ -24,10 +24,11 @@ Notifications.scheduleNotificationAsync({
 
 export default function Notification() {
   const [expoPushToken, setExpoPushToken] = useState('');
-  const [channels, setChannels] = useState<Notifications.NotificationChannel[]>([]);
   const [notification, setNotification] = useState<Notifications.Notification | undefined>(
     undefined
   );
+  const [isUpdatingKey, setIsUpdatingKey] = useState(false);
+  const [keyUpdateStatus, setKeyUpdateStatus] = useState<string | null>(null);
   const { updateNotificationKey, user, signOut } = useSession();
 
   useEffect(() => {
@@ -36,23 +37,15 @@ export default function Notification() {
         setExpoPushToken(token);
         // Update user's notification key when token is obtained
         if (user) {
-          try {
-            const result = await updateNotificationKey(token);
-            if (result.success) {
-              console.log('Notification key updated successfully');
-            } else {
-              console.error('Failed to update notification key:', result.error);
-            }
-          } catch (error) {
-            console.error('Error updating notification key:', error);
-          }
+          await updateUserNotificationKey(token);
         }
       }
     });
 
     if (Platform.OS === 'android') {
-      Notifications.getNotificationChannelsAsync().then(value => setChannels(value ?? []));
+      Notifications.getNotificationChannelsAsync();
     }
+    
     const notificationListener = Notifications.addNotificationReceivedListener(notification => {
       setNotification(notification);
     });
@@ -65,23 +58,157 @@ export default function Notification() {
       notificationListener.remove();
       responseListener.remove();
     };
-  }, []);
+  }, [user]);
 
-  // Only show a logout button, hide all other UI
+  const updateUserNotificationKey = async (token: string) => {
+    setIsUpdatingKey(true);
+    setKeyUpdateStatus('Mise à jour de la clé de notification...');
+    
+    try {
+      const result = await updateNotificationKey(token);
+      if (result.success) {
+        console.log('Notification key updated successfully');
+        setKeyUpdateStatus('Clé de notification mise à jour avec succès');
+        setTimeout(() => setKeyUpdateStatus(null), 3000);
+      } else {
+        console.error('Failed to update notification key:', result.error);
+        setKeyUpdateStatus(`Erreur: ${result.error}`);
+        Alert.alert(
+          'Erreur de mise à jour',
+          `Impossible de mettre à jour la clé de notification: ${result.error}`,
+          [
+            { text: 'OK' },
+            { 
+              text: 'Réessayer', 
+              onPress: () => updateUserNotificationKey(token) 
+            }
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Error updating notification key:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setKeyUpdateStatus(`Erreur: ${errorMessage}`);
+      Alert.alert('Erreur', `Une erreur est survenue: ${errorMessage}`);
+    } finally {
+      setIsUpdatingKey(false);
+    }
+  };
+
+  const retryUpdateNotificationKey = async () => {
+    if (expoPushToken) {
+      await updateUserNotificationKey(expoPushToken);
+    } else {
+      Alert.alert('Erreur', 'Token de notification non disponible. Veuillez redémarrer l\'application.');
+    }
+  };
+
   return (
-    <View
-      style={{
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
-      <Button
-        title="Se déconnecter"
-        onPress={signOut}
-      />
+    <View style={styles.container}>
+      {user && (
+        <View style={styles.userInfo}>
+          <Text style={styles.title}>Notifications</Text>
+          <Text style={styles.userText}>
+            Utilisateur: {user.prenom} {user.nom}
+          </Text>
+          {expoPushToken && (
+            <Text style={styles.tokenText}>
+              Token: {expoPushToken.substring(0, 20)}...
+            </Text>
+          )}
+        </View>
+      )}
+      
+      {isUpdatingKey && (
+        <View style={styles.statusContainer}>
+          <ActivityIndicator size="small" color="#0000ff" />
+          <Text style={styles.statusText}>Mise à jour en cours...</Text>
+        </View>
+      )}
+      
+      {keyUpdateStatus && !isUpdatingKey && (
+        <View style={styles.statusContainer}>
+          <Text style={[
+            styles.statusText,
+            keyUpdateStatus.includes('succès') ? styles.successText : styles.errorText
+          ]}>
+            {keyUpdateStatus}
+          </Text>
+        </View>
+      )}
+      
+      {keyUpdateStatus && keyUpdateStatus.includes('Erreur') && (
+        <Button
+          title="Réessayer la mise à jour"
+          onPress={retryUpdateNotificationKey}
+          color="#ff6b6b"
+        />
+      )}
+      
+      <View style={styles.buttonContainer}>
+        <Button
+          title="Tester notification"
+          onPress={schedulePushNotification}
+          color="#4CAF50"
+        />
+        <Button
+          title="Se déconnecter"
+          onPress={signOut}
+          color="#f44336"
+        />
+      </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  userInfo: {
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  userText: {
+    fontSize: 16,
+    marginBottom: 5,
+  },
+  tokenText: {
+    fontSize: 12,
+    color: '#666',
+    fontFamily: 'monospace',
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+    padding: 10,
+    borderRadius: 5,
+    backgroundColor: '#f0f0f0',
+  },
+  statusText: {
+    marginLeft: 5,
+    fontSize: 14,
+  },
+  successText: {
+    color: '#4CAF50',
+  },
+  errorText: {
+    color: '#f44336',
+  },
+  buttonContainer: {
+    width: '100%',
+    gap: 10,
+  },
+});
 
 async function schedulePushNotification() {
   await Notifications.scheduleNotificationAsync({

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import QRCodeSVG from 'react-native-qrcode-svg';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Image } from 'react-native';
 import { useSession } from '../../Session/ctx';
 import { useStorageState } from '../../Session/useStorageState';
 
@@ -211,6 +210,11 @@ export default function TeacherQRCodeScreen() {
         id_seance: selectedSession.id_seance,
         expires_in: `${selectedDuration}m`, // Use selected duration in minutes
         full_seance_mode: selectedPlage === 'full',
+        device_info: {
+          app_version: "1.0.0",
+          app_signature: "miage-presences-v1",
+          platform: "mobile"
+        }
       };
       
       // If specific plage is selected, add id_plage to request
@@ -243,7 +247,7 @@ export default function TeacherQRCodeScreen() {
       if (data.success && data.data && data.data.qr_codes && data.data.qr_codes[0]) {
         const qrCode = data.data.qr_codes[0];
         
-        // The qr_data is already a JSON string from the backend
+        // The qr_data now contains the encrypted custom URL
         setQrData(qrCode.qr_data);
         
         // Calculate expiration time based on selected duration
@@ -251,7 +255,7 @@ export default function TeacherQRCodeScreen() {
         setExpiresAt(expirationTime);
         setCountdown(selectedDuration * 60);
         
-        console.log('QR code generated successfully:', qrCode.qr_data);
+        console.log('QR code generated successfully with encrypted URL:', qrCode.qr_data);
         console.log('QR code expiration set to:', expirationTime);
       } else {
         setError(data.message || 'Erreur lors de la génération du QR code');
@@ -459,12 +463,10 @@ export default function TeacherQRCodeScreen() {
         <View style={styles.qrContainer}>
           {qrData ? (
             <View style={styles.qrCodeContainer}>
-              <QRCodeSVG
-                value={qrData}
-                size={260}
-                backgroundColor={COLORS.white}
-                color={COLORS.text}
-                ecl="H"
+              <Image
+                source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(qrData)}` }}
+                style={{ width: 260, height: 260 }}
+                resizeMode="contain"
               />
             </View>
           ) : (
